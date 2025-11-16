@@ -1,22 +1,29 @@
 from flask import Flask, jsonify, request
 from clients.mongo_client import mongo_client
 from clients.neo4j_client import neo4j_client
+from neo4j.graph import Node, Relationship
 
+# -------------------------------------------------
+# KHỞI TẠO APP FLASK
+# -------------------------------------------------
 app = Flask(__name__)
 
 
-# ----------------- ROUTES CƠ BẢN -----------------
-@app.route("/")
+# -------------------------------------------------
+# ROUTES CƠ BẢN
+# -------------------------------------------------
+@app.route("/", methods=["GET"])
 def index():
     """Trang kiểm tra nhanh xem API có chạy không."""
-    return jsonify({"message": "API Neo4j + MongoDB đang chạy"})
+    return jsonify({"message": "API Neo4j + MongoDB đang chạy trên Render"})
 
 
 @app.route("/health", methods=["GET"])
 def health():
     """
     Kiểm tra tình trạng kết nối MongoDB & Neo4j.
-    Trả về:
+
+    Trả về JSON:
     {
       "ok": true/false,
       "details": {
@@ -46,12 +53,14 @@ def health():
     return jsonify({"ok": overall_ok, "details": status})
 
 
-# ----------------- NEO4J TEST ĐƠN GIẢN -----------------
+# -------------------------------------------------
+# NEO4J TEST ĐƠN GIẢN
+# -------------------------------------------------
 @app.route("/neo4j/test", methods=["GET"])
 def neo4j_test():
     """
     Test đơn giản kết nối Neo4j.
-    Dùng để mở trên browser: /neo4j/test
+    Mở trên browser: /neo4j/test
     """
     try:
         result = neo4j_client.run_query("RETURN 1 AS ok")
@@ -61,7 +70,9 @@ def neo4j_test():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-# ----------------- API MONGO: LẤY DỮ LIỆU SẢN PHẨM -----------------
+# -------------------------------------------------
+# API MONGO: LẤY DỮ LIỆU SẢN PHẨM
+# -------------------------------------------------
 @app.route("/mongo/products", methods=["GET"])
 def get_products():
     """
@@ -80,7 +91,9 @@ def get_products():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-# ----------------- API NEO4J: LẤY NODES DEMO -----------------
+# -------------------------------------------------
+# API NEO4J: LẤY NODES DEMO
+# -------------------------------------------------
 @app.route("/neo4j/nodes", methods=["GET"])
 def get_nodes():
     """
@@ -109,7 +122,9 @@ def get_nodes():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-# ----------------- API NEO4J TỔNG QUÁT: CHẠY CÂU CYPHER -----------------
+# -------------------------------------------------
+# API NEO4J TỔNG QUÁT: CHẠY CÂU CYPHER BẤT KỲ
+# -------------------------------------------------
 @app.route("/neo4j/query", methods=["POST"])
 def run_neo4j_query():
     """
@@ -128,9 +143,6 @@ def run_neo4j_query():
 
     try:
         result = neo4j_client.run_query(query, params)
-
-        # Hàm convert để đưa Node/Relationship về dạng JSON-friendly
-        from neo4j.graph import Node, Relationship
 
         def convert_value(v):
             if isinstance(v, Node):
@@ -159,7 +171,9 @@ def run_neo4j_query():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-# ----------------- MAIN (CHỈ DÙNG KHI CHẠY LOCAL) -----------------
+# -------------------------------------------------
+# MAIN (CHỈ DÙNG KHI CHẠY LOCAL)
+# -------------------------------------------------
 if __name__ == "__main__":
     # Khi deploy trên Render sẽ dùng: gunicorn app:app
     # Đoạn dưới chỉ dùng khi bạn chạy: python app.py trên máy local.
