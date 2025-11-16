@@ -74,7 +74,7 @@ def neo4j_test():
 # API MONGO: LẤY DỮ LIỆU SẢN PHẨM
 # -------------------------------------------------
 @app.route("/mongo/products", methods=["GET"])
-def get_products():
+def get_mongo_products():
     """
     Ví dụ: GET /mongo/products?limit=10&collection=products
     Lấy dữ liệu từ collection MongoDB (mặc định: 'products').
@@ -84,11 +84,22 @@ def get_products():
 
     try:
         col = mongo_client.get_collection(collection_name)
+        # Ẩn _id hoặc convert sang string tùy bạn
         cursor = col.find({}, {"_id": 0}).limit(limit)
         data = list(cursor)
         return jsonify({"ok": True, "count": len(data), "data": data})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# 👉 ALIAS CHO /products (bạn đang gọi trên Render)
+@app.route("/products", methods=["GET"])
+def get_products_alias():
+    """
+    Alias: /products -> dùng lại logic của /mongo/products
+    Cho tiện khi gọi từ bên ngoài.
+    """
+    return get_mongo_products()
 
 
 # -------------------------------------------------
@@ -103,8 +114,8 @@ def get_nodes():
     limit = int(request.args.get("limit", 20))
 
     try:
-        cypher = f"MATCH (n) RETURN n LIMIT {limit}"
-        result = neo4j_client.run_query(cypher)
+        cypher = "MATCH (n) RETURN n LIMIT $limit"
+        result = neo4j_client.run_query(cypher, {"limit": limit})
 
         data = []
         for row in result:
@@ -131,7 +142,7 @@ def run_neo4j_query():
     Body JSON:
     {
       "query": "MATCH (n:Fruit) RETURN n LIMIT 5",
-      "params": { "name": "Bưởi da xanh" }   # không bắt buộc
+      "params": { "name": "Bưởi Da Xanh" }   # không bắt buộc
     }
     """
     data = request.get_json(force=True, silent=True) or {}
