@@ -22,15 +22,6 @@ def index():
 def health():
     """
     Kiểm tra tình trạng kết nối MongoDB & Neo4j.
-
-    Trả về JSON:
-    {
-      "ok": true/false,
-      "details": {
-         "mongo": {...},
-         "neo4j": {...}
-      }
-    }
     """
     status = {}
 
@@ -70,6 +61,12 @@ def neo4j_test():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# Alias riêng cho Neo4j health (nếu cần dùng /neo4j/health)
+@app.route("/neo4j/health", methods=["GET"])
+def neo4j_health():
+    return neo4j_test()
+
+
 # -------------------------------------------------
 # API MONGO: LẤY DỮ LIỆU SẢN PHẨM
 # -------------------------------------------------
@@ -84,7 +81,6 @@ def get_mongo_products():
 
     try:
         col = mongo_client.get_collection(collection_name)
-        # Ẩn _id hoặc convert sang string tùy bạn
         cursor = col.find({}, {"_id": 0}).limit(limit)
         data = list(cursor)
         return jsonify({"ok": True, "count": len(data), "data": data})
@@ -92,24 +88,20 @@ def get_mongo_products():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-# 👉 ALIAS CHO /products (bạn đang gọi trên Render)
+# 👉 ALIAS CHO /products
 @app.route("/products", methods=["GET"])
 def get_products_alias():
-    """
-    Alias: /products -> dùng lại logic của /mongo/products
-    Cho tiện khi gọi từ bên ngoài.
-    """
     return get_mongo_products()
 
 
 # -------------------------------------------------
-# API NEO4J: LẤY NODES DEMO
+# API NEO4J: LẤY NODES DEMO (ĐÃ FIX LỖI dict.id)
 # -------------------------------------------------
 @app.route("/neo4j/nodes", methods=["GET"])
 def get_nodes():
     """
     Demo: MATCH (n) RETURN n LIMIT {limit}
-    Chỉ dùng để test kết nối Neo4j.
+    Trả về dạng JSON an toàn cho cả Node object và dict (Aura Free).
     """
     limit = int(request.args.get("limit", 20))
 
@@ -119,14 +111,24 @@ def get_nodes():
 
         data = []
         for row in result:
-            node = row["n"]
-            data.append(
-                {
-                    "id": node.id,
-                    "labels": list(node.labels),
-                    "properties": dict(node),
-                }
-            )
+            n = row["n"]
+
+            # Trường hợp Aura Free trả về dict
+            if isinstance(n, dict):
+                data.append({
+                    "labels": n.get("labels", []),
+                    "properties": n
+                })
+            # Trường hợp chạy Neo4j Desktop / Aura trả về Node object
+            elif isinstance(n, Node):
+                data.append({
+                    "id": n.id,
+                    "labels": list(n.labels),
+                    "properties": dict(n)
+                })
+            else:
+                # fallback: trả nguyên giá trị
+                data.append({"value": str(n)})
 
         return jsonify({"ok": True, "count": len(data), "data": data})
     except Exception as e:
@@ -134,7 +136,7 @@ def get_nodes():
 
 
 # -------------------------------------------------
-# API NEO4J TỔNG QUÁT: CHẠY CÂU CYPHER BẤT KỲ
+# API NEO4J TỔNG QUÁT: CHẠY CYPHER BẤT KỲ
 # -------------------------------------------------
 @app.route("/neo4j/query", methods=["POST"])
 def run_neo4j_query():
@@ -170,6 +172,9 @@ def run_neo4j_query():
                     "end_node_id": v.end_node.id,
                     "properties": dict(v),
                 }
+            # Nếu là dict (Aura Free) thì trả nguyên
+            if isinstance(v, dict):
+                return v
             return v
 
         rows = []
@@ -186,6 +191,4 @@ def run_neo4j_query():
 # MAIN (CHỈ DÙNG KHI CHẠY LOCAL)
 # -------------------------------------------------
 if __name__ == "__main__":
-    # Khi deploy trên Render sẽ dùng: gunicorn app:app
-    # Đoạn dưới chỉ dùng khi bạn chạy: python app.py trên máy local.
     app.run(host="0.0.0.0", port=5000, debug=True)
