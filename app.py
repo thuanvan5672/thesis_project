@@ -233,6 +233,70 @@ def search():
         "mongo_nodes": mongo_nodes,
         "mongo_rels": mongo_rels
     })
+# -------------------------------------------------
+# API SEARCH CHO CHATBOT
+# -------------------------------------------------
+@app.route("/search", methods=["GET"])
+def search():
+    query = request.args.get("query", "").strip()
+
+    if not query:
+        return jsonify({"ok": False, "error": "Thiếu query"}), 400
+
+    results = {
+        "query": query,
+        "neo4j_results": [],
+        "mongo_nodes": [],
+        "mongo_rels": []
+    }
+
+    # --- SEARCH NEO4J ---
+    try:
+        cypher = """
+        MATCH (n)
+        WHERE ANY(label IN labels(n) WHERE toLower(label) CONTAINS toLower($q))
+           OR ANY(key IN keys(n) WHERE toLower(n[key]) CONTAINS toLower($q))
+        RETURN n LIMIT 20
+        """
+        rows = neo4j_client.run_query(cypher, {"q": query})
+
+        for r in rows:
+            n = r["n"]
+            results["neo4j_results"].append({
+                "id": n.id,
+                "labels": list(n.labels),
+                "properties": dict(n)
+            })
+    except Exception as e:
+        results["neo4j_error"] = str(e)
+
+    # --- SEARCH MONGO nodes ---
+    try:
+        col_nodes = mongo_client.get_collection("nodes")
+        docs = col_nodes.find(
+            {"$text": {"$search": query}},
+            {"_id": 0}
+        )
+        results["mongo_nodes"] = list(docs)
+    except Exception:
+        # fallback không có text index
+        col_nodes = mongo_client.get_collection("nodes")
+        docs = col_nodes.find(
+            {"labels": {"$regex": query, "$options": "i"}}, {"_id": 0}
+        )
+        results["mongo_nodes"] = list(docs)
+
+    # --- SEARCH MONGO rels ---
+    try:
+        col_rels = mongo_client.get_collection("rels")
+        docs = col_rels.find(
+            {"type": {"$regex": query, "$options": "i"}}, {"_id": 0}
+        )
+        results["mongo_rels"] = list(docs)
+    except Exception:
+        pass
+
+    return jsonify(results)
 
 # -------------------------------------------------
 # MAIN – CHẠY LOCAL
