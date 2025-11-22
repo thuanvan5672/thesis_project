@@ -163,7 +163,76 @@ def run_neo4j_query():
         return jsonify({"ok": True, "count": len(rows), "data": rows})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+# -------------------------------------------------
+# API SEARCH CHO CHATBOT
+# -------------------------------------------------
+@app.route("/search", methods=["GET"])
+def search():
+    q = request.args.get("query", "").strip()
+    if not q:
+        return jsonify({"ok": False, "error": "Thiếu tham số ?query="}), 400
 
+    # ========== NEO4J SEARCH ==========
+    cypher = """
+    MATCH (n)
+    WHERE exists(n.rdfs__label)
+      AND toLower(n.rdfs__label) CONTAINS toLower($q)
+
+    OPTIONAL MATCH (n)-[r]->(m)
+
+    RETURN DISTINCT
+      n {.*, label: n.rdfs__label, labels: labels(n)} AS node,
+      collect(DISTINCT {
+        type: type(r),
+        target_label: coalesce(m.rdfs__label, ""),
+        target_labels: labels(m)
+      }) AS relations
+    """
+
+    try:
+        neo4j_rows = neo4j_client.run_query(cypher, {"q": q})
+        neo4j_results = [{
+            "node": row.get("node"),
+            "relations": row.get("relations", [])
+        } for row in neo4j_rows]
+    except Exception as e:
+        neo4j_results = []
+        
+
+    # ========== MONGODB SEARCH ==========
+    db = mongo_client.db  # fruit_graph
+    nodes_coll = db["nodes"]
+    rels_coll = db["rels"]
+
+    # tìm node trong mongo
+    mongo_nodes = list(nodes_coll.find({
+        "$or": [
+            {"props.rdfs__label": {"$regex": q, "$options": "i"}},
+            {"labels": {"$elemMatch": {"$regex": q, "$options": "i"}}}
+        ]
+    }, {"_id": 0}))
+
+    # lấy danh sách id node phù hợp
+    neo_ids = [n.get("neo4j_id") for n in mongo_nodes if "neo4j_id" in n]
+
+    # tìm rel trong mongo
+    if neo_ids:
+        mongo_rels = list(rels_coll.find({
+            "$or": [
+                {"start_neo4j_id": {"$in": neo_ids}},
+                {"end_neo4j_id": {"$in": neo_ids}}
+            ]
+        }, {"_id": 0}))
+    else:
+        mongo_rels = []
+
+    # ========== RETURN ==========
+    return jsonify({
+        "query": q,
+        "neo4j_results": neo4j_results,
+        "mongo_nodes": mongo_nodes,
+        "mongo_rels": mongo_rels
+    })
 
 # -------------------------------------------------
 # MAIN – CHẠY LOCAL
