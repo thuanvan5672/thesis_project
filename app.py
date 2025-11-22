@@ -65,12 +65,13 @@ def neo4j_health():
 
 
 # -------------------------------------------------
-# API MONGO: LẤY DỮ LIỆU
+# API MONGO: LẤY DỮ LIỆU (MẶC ĐỊNH DÙNG 'nodes')
 # -------------------------------------------------
 @app.route("/mongo/products", methods=["GET"])
 def get_mongo_products():
     limit = int(request.args.get("limit", 10))
-    collection_name = request.args.get("collection", "products")
+    # nếu có collection 'products' thì đổi lại; hiện bạn chỉ có 'nodes', 'rels'
+    collection_name = request.args.get("collection", "nodes")
 
     try:
         col = mongo_client.get_collection(collection_name)
@@ -163,8 +164,10 @@ def run_neo4j_query():
         return jsonify({"ok": True, "count": len(rows), "data": rows})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # -------------------------------------------------
-# API SEARCH CHO CHATBOT
+# API SEARCH CHO CHATBOT (DUY NHẤT)
 # -------------------------------------------------
 @app.route("/search", methods=["GET"])
 def search():
@@ -197,7 +200,9 @@ def search():
         } for row in neo4j_rows]
     except Exception as e:
         neo4j_results = []
-        
+        neo4j_error = str(e)
+    else:
+        neo4j_error = None
 
     # ========== MONGODB SEARCH ==========
     db = mongo_client.db  # fruit_graph
@@ -227,76 +232,17 @@ def search():
         mongo_rels = []
 
     # ========== RETURN ==========
-    return jsonify({
+    resp = {
         "query": q,
         "neo4j_results": neo4j_results,
         "mongo_nodes": mongo_nodes,
-        "mongo_rels": mongo_rels
-    })
-# -------------------------------------------------
-# API SEARCH CHO CHATBOT
-# -------------------------------------------------
-@app.route("/search", methods=["GET"])
-def search():
-    query = request.args.get("query", "").strip()
-
-    if not query:
-        return jsonify({"ok": False, "error": "Thiếu query"}), 400
-
-    results = {
-        "query": query,
-        "neo4j_results": [],
-        "mongo_nodes": [],
-        "mongo_rels": []
+        "mongo_rels": mongo_rels,
     }
+    if neo4j_error:
+        resp["neo4j_error"] = neo4j_error
 
-    # --- SEARCH NEO4J ---
-    try:
-        cypher = """
-        MATCH (n)
-        WHERE ANY(label IN labels(n) WHERE toLower(label) CONTAINS toLower($q))
-           OR ANY(key IN keys(n) WHERE toLower(n[key]) CONTAINS toLower($q))
-        RETURN n LIMIT 20
-        """
-        rows = neo4j_client.run_query(cypher, {"q": query})
+    return jsonify(resp)
 
-        for r in rows:
-            n = r["n"]
-            results["neo4j_results"].append({
-                "id": n.id,
-                "labels": list(n.labels),
-                "properties": dict(n)
-            })
-    except Exception as e:
-        results["neo4j_error"] = str(e)
-
-    # --- SEARCH MONGO nodes ---
-    try:
-        col_nodes = mongo_client.get_collection("nodes")
-        docs = col_nodes.find(
-            {"$text": {"$search": query}},
-            {"_id": 0}
-        )
-        results["mongo_nodes"] = list(docs)
-    except Exception:
-        # fallback không có text index
-        col_nodes = mongo_client.get_collection("nodes")
-        docs = col_nodes.find(
-            {"labels": {"$regex": query, "$options": "i"}}, {"_id": 0}
-        )
-        results["mongo_nodes"] = list(docs)
-
-    # --- SEARCH MONGO rels ---
-    try:
-        col_rels = mongo_client.get_collection("rels")
-        docs = col_rels.find(
-            {"type": {"$regex": query, "$options": "i"}}, {"_id": 0}
-        )
-        results["mongo_rels"] = list(docs)
-    except Exception:
-        pass
-
-    return jsonify(results)
 
 # -------------------------------------------------
 # MAIN – CHẠY LOCAL
